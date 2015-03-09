@@ -22,3 +22,4 @@ build.log
 .build/
 # .. and the legacy location
 targets/
+*~
