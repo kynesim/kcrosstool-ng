@@ -22,8 +22,8 @@ CT_MODULES=y
 #
 CT_LOCAL_TARBALLS_DIR="/media/sdc1/home/rrw/work/crosstool/crosstool-ng/kynesim/tarballs"
 # CT_SAVE_TARBALLS is not set
-CT_WORK_DIR="/tmp/tc/hf_arm-unknown-linux-gnueabi/build"
-CT_PREFIX_DIR="/tmp/tc/foo/hf/arm-unknown-linux-gnueabi"
+CT_WORK_DIR="/tmp/tc/hf_arm-linux-gnueabi/build"
+CT_PREFIX_DIR="/tmp/tc/foo/hf/arm-linux-gnueabi"
 CT_INSTALL_DIR="${CT_PREFIX_DIR}"
 CT_RM_RF_PREFIX_DIR=y
 CT_REMOVE_DOCS=y
@@ -186,7 +186,7 @@ CT_TOOLCHAIN_BUGURL=""
 #
 # Tuple completion and aliasing
 #
-CT_TARGET_VENDOR="unknown"
+CT_TARGET_VENDOR=""
 CT_TARGET_ALIAS_SED_EXPR=""
 CT_TARGET_ALIAS=""
 
