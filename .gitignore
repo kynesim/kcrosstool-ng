@@ -24,3 +24,5 @@ build.log
 targets/
 *~
 kynesim/tarballs
+# .. and log for 'build-all'
+.build-all

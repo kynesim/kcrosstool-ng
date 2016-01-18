@@ -10,7 +10,7 @@
 ## select ARCH_DEFAULT_HAS_MMU
 ##
 ## help The MicroBlaze architecture, as defined by:
-## help 	http://www.xilinx.com/
+## help     http://www.xilinx.com/
 ## help 
 ## help Upstream projects do not currently provide
 ## help full support for the microblaze architecture
@@ -19,4 +19,4 @@
 ## help 
 ## help Support is being added for a modern gcc,
 ## help binutils and gdb along with nptl threading
-## help in eglibc for microblaze.
+## help in glibc for microblaze.

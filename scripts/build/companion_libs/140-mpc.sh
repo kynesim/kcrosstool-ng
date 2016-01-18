@@ -6,6 +6,7 @@ do_mpc_get() { :; }
 do_mpc_extract() { :; }
 do_mpc_for_build() { :; }
 do_mpc_for_host() { :; }
+do_mpc_for_target() { :; }
 
 # Overide functions depending on configuration
 if [ "${CT_MPC}" = "y" ]; then
@@ -13,7 +14,8 @@ if [ "${CT_MPC}" = "y" ]; then
 # Download MPC
 do_mpc_get() {
     CT_GetFile "mpc-${CT_MPC_VERSION}" .tar.gz      \
-        {http,ftp,https}://ftp.gnu.org/gnu/mpc
+        {http,ftp,https}://ftp.gnu.org/gnu/mpc      \
+        http://www.multiprecision.org/mpc/download
 }
 
 # Extract MPC
@@ -95,15 +97,15 @@ do_mpc_backend() {
         --enable-static
 
     CT_DoLog EXTRA "Building MPC"
-    CT_DoExecLog ALL make ${JOBSFLAGS}
+    CT_DoExecLog ALL ${make} ${JOBSFLAGS}
 
     if [ "${CT_COMPLIBS_CHECK}" = "y" ]; then
         CT_DoLog EXTRA "Checking MPC"
-        CT_DoExecLog ALL make ${JOBSFLAGS} -s check
+        CT_DoExecLog ALL ${make} ${JOBSFLAGS} -s check
     fi
 
     CT_DoLog EXTRA "Installing MPC"
-    CT_DoExecLog ALL make install
+    CT_DoExecLog ALL ${make} install
 }
 
 fi # CT_MPC
