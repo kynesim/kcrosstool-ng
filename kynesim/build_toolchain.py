@@ -39,6 +39,10 @@ main_parser.add_option("--list-toolchains",
                        dest="list_toolchains", action="store_true",
                        default = False,
                        help = ("List the toolchains that will be built"))
+main_parser.add_option("--just-ctng",
+                       dest="just_ctng", action="store_true",
+                       default=False,
+                       help= ("Just install CTNG and stop"))
 #main_parser.add_option("--ctng", 
 #                       dest="ctng", action="store",
 #                       default = None,
@@ -138,7 +142,7 @@ def go(args):
 
     # For development!
     print("Working in %s"%work)
-    if not opts.toolchain_only:
+    if (opts.just_ctng) or (not opts.toolchain_only):
         ctng_build_dir = os.path.join(work, "ctng-source")
         run_to_stdout(["rm", "-rf", ctng_build_dir], allowFailure = True)
 
@@ -156,6 +160,9 @@ def go(args):
                        ctng_inst ])
         run_to_stdout(["make"])
         run_to_stdout(["make", "install" ])
+        if (opts.just_ctng):
+            print("CTNG built in %s\n"%ctng_inst)
+            return 
 
     # Right oh.
     # Let's make some cache directories .. 
