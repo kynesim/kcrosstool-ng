@@ -2,48 +2,36 @@
 # Copyright 2007 Yann E. MORIN
 # Licensed under the GPL v2. See COPYING in the root of this package
 
-# Extract the C library tarball(s)
-do_libc_extract() {
-    local addon
+do_libc_get() {
+    local date
+    local version
 
+    # Main source
+    if [ "${CT_LIBC_GLIBC_CUSTOM}" = "y" ]; then
+        CT_GetCustom "glibc" "${CT_LIBC_GLIBC_CUSTOM_VERSION}" \
+            "${CT_LIBC_GLIBC_CUSTOM_LOCATION}"
+    else
+        if echo ${CT_LIBC_VERSION} |${grep} -q linaro; then
+            # Linaro glibc releases come from regular downloads...
+            YYMM=`echo ${CT_LIBC_VERSION} |cut -d- -f3 |${sed} -e 's,^..,,'`
+            CT_GetFile "glibc-${CT_LIBC_VERSION}" \
+                       https://releases.linaro.org/${YYMM}/components/toolchain/glibc-linaro \
+                       http://cbuild.validation.linaro.org/snapshots
+        else
+            CT_GetFile "glibc-${CT_LIBC_VERSION}"                                        \
+                       {http,ftp,https}://ftp.gnu.org/gnu/glibc                          \
+                       ftp://{sourceware.org,gcc.gnu.org}/pub/glibc/{releases,snapshots}
+        fi
+    fi
+
+    return 0
+}
+
+do_libc_extract() {
     CT_Extract "${CT_LIBC}-${CT_LIBC_VERSION}"
     CT_Pushd "${CT_SRC_DIR}/${CT_LIBC}-${CT_LIBC_VERSION}"
     # Attempt CT_PATCH only if NOT custom
     CT_Patch nochdir "${CT_LIBC}" "${CT_LIBC_VERSION}"
-
-    # Extract the add-opns if => 2.17
-    if [ "${CT_LIBC_GLIBC_2_17_or_later}" != "y" ]; then
-        for addon in $(do_libc_add_ons_list " "); do
-            # If the addon was bundled with the main archive, we do not
-            # need to extract it. Worse, if we were to try to extract
-            # it, we'd get an error.
-            if [ -d "${addon}" ]; then
-                CT_DoLog DEBUG "Add-on '${addon}' already present, skipping extraction"
-                continue
-            fi
-
-            CT_Extract nochdir "${CT_LIBC}-${addon}-${CT_LIBC_VERSION}"
-
-            CT_TestAndAbort "Error in add-on '${addon}': both short and long names in tarball" \
-                -d "${addon}" -a -d "${CT_LIBC}-${addon}-${CT_LIBC_VERSION}"
-
-            # Some addons have the 'long' name, while others have the
-            # 'short' name, but patches are non-uniformly built with
-            # either the 'long' or 'short' name, whatever the addons name
-            # but we prefer the 'short' name and avoid duplicates.
-            if [ -d "${CT_LIBC}-${addon}-${CT_LIBC_VERSION}" ]; then
-                CT_DoExecLog FILE mv "${CT_LIBC}-${addon}-${CT_LIBC_VERSION}" "${addon}"
-            fi
-
-            CT_DoExecLog FILE ln -s "${addon}" "${CT_LIBC}-${addon}-${CT_LIBC_VERSION}"
-
-            CT_Patch nochdir "${CT_LIBC}" "${addon}-${CT_LIBC_VERSION}"
-
-            # Remove the long name since it can confuse configure scripts to run
-            # the same source twice.
-            rm "${CT_LIBC}-${addon}-${CT_LIBC_VERSION}"
-        done
-    fi
 
     # The configure files may be older than the configure.in files
     # if using a snapshot (or even some tarballs). Fake them being
@@ -51,10 +39,10 @@ do_libc_extract() {
     find . -type f -name configure -exec touch {} \; 2>&1 |CT_DoLog ALL
 
     CT_Popd
+}
 
-    if [ "${CT_LIBC_LOCALES}" = "y" ]; then
-        do_libc_locales_extract
-    fi
+do_libc_check_config() {
+    :
 }
 
 # Build and install headers and start files
@@ -69,6 +57,10 @@ do_libc() {
     do_libc_backend libc_mode=final
 }
 
+do_libc_post_cc() {
+    :
+}
+
 # This backend builds the C library once for each multilib
 # variant the compiler gives us
 # Usage: do_libc_backend param=value [...]
@@ -81,6 +73,7 @@ do_libc_backend() {
     local multi_dir
     local multi_flags
     local extra_dir
+    local target
     local libc_headers libc_startfiles libc_full
     local hdr
     local arg
@@ -144,11 +137,24 @@ do_libc_backend() {
 
         CT_mkdir_pushd "${CT_BUILD_DIR}/build-libc-${libc_mode}${extra_dir//\//_}"
 
+        target=${CT_TARGET}
+        case "${target}" in
+            # SPARC quirk: glibc 2.23 and newer dropped support for SPARCv8 and
+            # earlier (corresponding pthread barrier code is missing). Until this
+            # support is reintroduced, configure as sparcv9.
+            sparc-*)
+                if [ "${CT_LIBC_GLIBC_2_23_or_later}" = y ]; then
+                    target=${target/#sparc-/sparcv9-}
+                fi
+                ;;
+        esac
+
         do_libc_backend_once extra_dir="${extra_dir}"               \
                              extra_flags="${extra_flags}"           \
                              libc_headers="${libc_headers}"         \
                              libc_startfiles="${libc_startfiles}"   \
-                             libc_full="${libc_full}"
+                             libc_full="${libc_full}"               \
+                             target="${target}"
 
         CT_Popd
 
@@ -200,6 +206,7 @@ do_libc_backend_once() {
     local glibc_cflags
     local float_extra
     local endian_extra
+    local target
     local arg
 
     for arg in "$@"; do
@@ -349,7 +356,7 @@ do_libc_backend_once() {
     "${src_dir}/configure"                                          \
         --prefix=/usr                                               \
         --build=${CT_BUILD}                                         \
-        --host=${CT_TARGET}                                         \
+        --host=${target}                                            \
         --cache-file="$(pwd)/config.cache"                          \
         --without-cvs                                               \
         --disable-profile                                           \
@@ -539,74 +546,6 @@ do_libc_min_kernel_config() {
     esac
 }
 
-# Download glibc
-do_libc_get() {
-    local date
-    local version
-    local -a addons_list
-
-    addons_list=($(do_libc_add_ons_list " "))
-
-    # Main source
-    if [ "${CT_LIBC_GLIBC_CUSTOM}" = "y" ]; then
-        CT_GetCustom "glibc" "${CT_LIBC_GLIBC_CUSTOM_VERSION}" \
-            "${CT_LIBC_GLIBC_CUSTOM_LOCATION}"
-    else
-        if echo ${CT_LIBC_VERSION} |${grep} -q linaro; then
-            # Linaro glibc releases come from regular downloads...
-            YYMM=`echo ${CT_LIBC_VERSION} |cut -d- -f3 |${sed} -e 's,^..,,'`
-            CT_GetFile "glibc-${CT_LIBC_VERSION}" \
-                       https://releases.linaro.org/${YYMM}/components/toolchain/glibc-linaro \
-                       http://cbuild.validation.linaro.org/snapshots
-        else
-            CT_GetFile "glibc-${CT_LIBC_VERSION}"                                        \
-                       {http,ftp,https}://ftp.gnu.org/gnu/glibc                          \
-                       ftp://{sourceware.org,gcc.gnu.org}/pub/glibc/{releases,snapshots}
-        fi
-    fi
-
-    # C library addons
-    for addon in "${addons_list[@]}"; do
-        # Never ever try to download these add-ons,
-        # they've always been internal
-        case "${addon}" in
-            nptl)   continue;;
-        esac
-
-        case "${addon}:${CT_LIBC_GLIBC_PORTS_EXTERNAL}" in
-            ports:y)    ;;
-            ports:*)    continue;;
-        esac
-
-        if ! CT_GetFile "glibc-${addon}-${CT_LIBC_VERSION}"                      \
-               http://mirrors.kernel.org/sourceware/glibc                        \
-               {http,ftp,https}://ftp.gnu.org/gnu/glibc                          \
-               ftp://{sourceware.org,gcc.gnu.org}/pub/glibc/{releases,snapshots}
-        then
-            # Some add-ons are bundled with glibc, others are
-            # bundled in their own tarball. Eg. NPTL is internal,
-            # while LinuxThreads was external. Also, for old
-            # versions of glibc, the libidn add-on was external,
-            # but with version >=2.10, it is internal.
-            CT_DoLog DEBUG "Addon '${addon}' could not be downloaded."
-            CT_DoLog DEBUG "We'll see later if we can find it in the source tree"
-        fi
-    done
-
-    return 0
-}
-
-# There is nothing to do for glibc check config
-do_libc_check_config() {
-    :
-}
-
-# Extract the files required for the libc locales
-# Nothing to do
-do_libc_locales_extract() {
-    :
-}
-
 # Build and install the libc locales
 do_libc_locales() {
     local src_dir="${CT_SRC_DIR}/glibc-${CT_LIBC_VERSION}"
@@ -660,6 +599,7 @@ do_libc_locales() {
         --disable-profile                  \
         --without-gd                       \
         --disable-debug                    \
+        --disable-sanity-checks            \
         "${extra_config[@]}"
 
     CT_DoLog EXTRA "Building C library localedef"
@@ -676,6 +616,3 @@ do_libc_locales() {
                           localedata/install-locales
 }
 
-do_libc_post_cc() {
-    :
-}
