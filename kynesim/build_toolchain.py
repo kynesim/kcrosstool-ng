@@ -6,7 +6,11 @@ building toolchains.
 
 Syntax:
 
-build_toolchain.py [opts] <target_directory>
+build_toolchain.py [opts] <version>
+
+<version> will be stored in the toolchain name.
+
+The default working directory is /tmp/tc; change it with --work .
 
 """
 import os
@@ -19,9 +23,14 @@ import datetime
 import re
 import traceback
 
+
 from optparse import OptionParser
 
 g_verbose = False
+if os.name == 'posix':
+    g_is_linux = True
+else: 
+    g_is_linux = False
 
 main_parser = OptionParser(usage = __doc__)
 main_parser.add_option("-j", '--j', action="store",
@@ -47,6 +56,11 @@ main_parser.add_option("--just-ctng",
 #                       dest="ctng", action="store",
 #                       default = None,
 #                       help = "Use an existing ct-ng repo")
+main_parser.add_option("--work",
+                       dest="work",
+                       action="store",
+                       default="/tmp/tc",
+                       help="Directory to work in")
 main_parser.add_option("--toolchain-only",
                        dest="toolchain_only",
                        action="store_true",
@@ -118,11 +132,12 @@ def go(args):
 
     tc_name = args[0]
 
-    pkg_required = [ "gperf", "libtool", "build-essential" ]
-    for i in pkg_required:
-        rc = subprocess.call(["dpkg", "-s", i ])
-        if (rc != 0):
-            raise GiveUp("Please install %s from '%s' . "%(i, " ".join(pkg_required)))
+    if (g_is_linux):
+        pkg_required = [ "gperf", "libtool", "build-essential" ]
+        for i in pkg_required:
+            rc = subprocess.call(["dpkg", "-s", i ])
+            if (rc != 0):
+                raise GiveUp("Please install %s from '%s' . "%(i, " ".join(pkg_required)))
     
     here = os.path.abspath(os.path.realpath(__file__))
     tc_base_dir = os.path.split(here)[0]
@@ -131,7 +146,8 @@ def go(args):
 
 # Find the abs pathname of opts.ctng
     #work = tempfile.mkdtemp(prefix="build_toolchain_")
-    work = "/tmp/tc"
+    if (opts.work is not  None): 
+                       work = "/tmp/tc"
     try:
         os.mkdir(work)
     except:
