@@ -10,7 +10,7 @@ build_toolchain.py [opts] <target_directory>
 
 """
 import os
-import pwd
+import getpass
 import sys
 import tempfile
 import platform
@@ -172,7 +172,7 @@ def go(args):
     host_name = platform.node()
     
     now = datetime.datetime.now()
-    user_name = pwd.getpwuid(os.getuid())[0]
+    user_name = getpass.getuser()
     pkg_version = "%s_%s@%s_%s"%(tc_name, 
                                  user_name,
                                  host_name,
