@@ -1,6 +1,7 @@
 # D.U.M.A. - Detect Unintended Memory Access - Memory checker
 
 ## depends on ! BACKEND
+## depends on ! BARE_METAL
 
 ## help D.U.M.A. - Detect Unintended Memory Access
 ## help A memory bound checker, with additional features.
@@ -14,7 +15,8 @@ config DUMA_A
 config DUMA_SO
     bool
     prompt "Build a shared library"
-    default y if SHARED_LIBS
+    depends on SHARED_LIBS
+    default y
 
 choice
     bool

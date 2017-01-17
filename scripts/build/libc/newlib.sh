@@ -17,8 +17,8 @@ do_libc_get() {
         CT_GetCustom "newlib" "${CT_LIBC_NEWLIB_CUSTOM_VERSION}" \
             "${CT_LIBC_NEWLIB_CUSTOM_LOCATION}"
     else # ! custom location
-        if echo ${CT_LIBC_VERSION} |${grep} -q linaro; then
-            YYMM=`echo ${CT_LIBC_VERSION} |cut -d- -f3 |${sed} -e 's,^..,,'`
+        if echo ${CT_LIBC_VERSION} |grep -q linaro; then
+            YYMM=`echo ${CT_LIBC_VERSION} |cut -d- -f3 |sed -e 's,^..,,'`
             CT_GetFile "newlib-${CT_LIBC_VERSION}" ${libc_src} \
                        https://releases.linaro.org/${YYMM}/components/toolchain/newlib-linaro \
                        http://cbuild.validation.linaro.org/snapshots
@@ -36,10 +36,6 @@ do_libc_extract() {
     if [ -n "${CT_ARCH_XTENSA_CUSTOM_NAME}" ]; then
         CT_ConfigureXtensa "newlib" "${CT_LIBC_VERSION}"
     fi
-}
-
-do_libc_check_config() {
-    :
 }
 
 do_libc_start_files() {
@@ -125,16 +121,16 @@ do_libc() {
         "${CT_LIBC_NEWLIB_EXTRA_CONFIG_ARRAY[@]}"
 
     CT_DoLog EXTRA "Building C library"
-    CT_DoExecLog ALL ${make} ${JOBSFLAGS}
+    CT_DoExecLog ALL make ${JOBSFLAGS}
 
     CT_DoLog EXTRA "Installing C library"
-    CT_DoExecLog ALL ${make} install install_root="${CT_SYSROOT_DIR}"
+    CT_DoExecLog ALL make install install_root="${CT_SYSROOT_DIR}"
 
     if [ "${CT_BUILD_MANUALS}" = "y" ]; then
         local -a doc_dir="${CT_BUILD_DIR}/build-libc/${CT_TARGET}"
 
         CT_DoLog EXTRA "Building and installing the C library manual"
-        CT_DoExecLog ALL ${make} pdf html
+        CT_DoExecLog ALL make pdf html
 
         # NEWLIB install-{pdf.html} fail for some versions
         CT_DoExecLog ALL mkdir -p "${CT_PREFIX_DIR}/share/doc/newlib"
