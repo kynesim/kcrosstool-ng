@@ -2,45 +2,7 @@
 
 menu "Target options"
 
-config ARCH
-    string
-
-# Pre-declare target optimisation variables
-config ARCH_SUPPORTS_BOTH_MMU
-config ARCH_SUPPORTS_BOTH_ENDIAN
-config ARCH_SUPPORTS_8
-config ARCH_SUPPORTS_32
-config ARCH_SUPPORTS_64
-config ARCH_SUPPORTS_WITH_ARCH
-config ARCH_SUPPORTS_WITH_ABI
-config ARCH_SUPPORTS_WITH_CPU
-config ARCH_SUPPORTS_WITH_TUNE
-config ARCH_SUPPORTS_WITH_FLOAT
-config ARCH_SUPPORTS_WITH_FPU
-config ARCH_SUPPORTS_SOFTFP
-
-config ARCH_DEFAULT_HAS_MMU
-config ARCH_DEFAULT_BE
-config ARCH_DEFAULT_LE
-config ARCH_DEFAULT_32
-config ARCH_DEFAULT_64
-
-config ARCH_ARCH
-config ARCH_ABI
-config ARCH_CPU
-config ARCH_TUNE
-config ARCH_FPU
-config ARCH_BE
-config ARCH_LE
-config ARCH_32
-config ARCH_64
-config ARCH_BITNESS
-config ARCH_FLOAT_HW
-config ARCH_FLOAT_SW
-config TARGET_CFLAGS
-config TARGET_LDFLAGS
-
-source "config.gen/arch.in"
+source "config/gen/arch.in"
 
 config ARCH_SUFFIX
     string
@@ -71,7 +33,6 @@ config ARCH_REQUIRES_MULTILIB
 config MULTILIB
     bool
     prompt "Build a multilib toolchain (READ HELP!!!)"
-    select CC_CORE_PASS_1_NEEDED
     help
       If you say 'y' here, then the toolchain will also contain the C library
       optimised for some variants of the selected architecture, besides the
@@ -85,6 +46,29 @@ config MULTILIB
       
       NOTE: The multilib feature in crosstool-NG is not well-tested.
             Use at your own risk, and report success and/or failure.
+
+config DEMULTILIB
+    bool "Attempt to combine libraries into a single directory"
+    default y if !MULTILIB
+    depends on !MULTILIB || EXPERIMENTAL
+    help
+      Normally, Crosstool-NG installs the libraries into the directories
+      as the configure for these libraries determines appropriate. For
+      example, for AArch64 glibc wants to install the libraries into
+      /lib64 but the default dynamic linker path is /lib/ld-linux-aarch64.so.1
+      (which is installed as a symlink to ../lib64/ld-VER.so).
+
+      However, not all consumers of the toolchain can handle the libraries
+      residing in multiple directories. To appease them, crosstool-NG can
+      attempt to combine the libraries back into a single /lib directory and
+      create all other directories as symlinks to /lib. This requires all
+      the library names to be unique within each sysroot.
+
+      Note that GCC may also use separate sysroots for different multilibs.
+      Hence it may make sense to enable this option even for multilib toolchains.
+      However, separate roots are rare (any other architecture aside from
+      SuperH using them?) and hence not well tested in crosstool-NG; therefore,
+      this option is experimental when MULTILIB is enabled.
 
 #--------------------------------------
 config ARCH_SUPPORTS_BOTH_MMU
@@ -145,6 +129,9 @@ config ARCH_ENDIAN
 config ARCH_SUPPORTS_8
     bool
 
+config ARCH_SUPPORTS_16
+    bool
+
 config ARCH_SUPPORTS_32
     bool
 
@@ -152,6 +139,9 @@ config ARCH_SUPPORTS_64
     bool
 
 config ARCH_DEFAULT_8
+    bool
+
+config ARCH_DEFAULT_16
     bool
 
 config ARCH_DEFAULT_32
@@ -163,6 +153,7 @@ config ARCH_DEFAULT_64
 config ARCH_BITNESS
     int
     default "8"     if ARCH_8
+    default "16"    if ARCH_16
     default "32"    if ARCH_32
     default "64"    if ARCH_64
 
@@ -170,6 +161,7 @@ choice
     bool
     prompt "Bitness:"
     default ARCH_8  if ARCH_DEFAULT_8
+    default ARCH_16 if ARCH_DEFAULT_16
     default ARCH_32 if ARCH_DEFAULT_32
     default ARCH_64 if ARCH_DEFAULT_64
 
@@ -177,6 +169,11 @@ config ARCH_8
     bool
     prompt "8-bit"
     depends on ARCH_SUPPORTS_8
+
+config ARCH_16
+    bool
+    prompt "16-bit"
+    depends on ARCH_SUPPORTS_16
 
 config ARCH_32
     bool
@@ -405,6 +402,30 @@ config ARCH_FLOAT
     default "soft"   if ARCH_FLOAT_SW
     default "softfp" if ARCH_FLOAT_SOFTFP
 
-source "config.gen/arch.in.2"
+config TARGET_USE_OVERLAY
+    bool
+
+if TARGET_USE_OVERLAY
+
+config OVERLAY_NAME
+    string "Custom processor configuration name"
+    help
+      Enter the name of the custom processor configuration.
+      Overlay file for that configuration must be called
+      '<ARCH>_<OVERLAY_NAME>.tar' (optionally, with .gz/.bz2/.lzma/.xz
+      extension).
+
+      Leave blank to use the default '<ARCH>_overlay.tar'.
+      For more information about this option, please also consult the
+      section 'Using crosstool-NG to build Xtensa toolchains' in the
+      in http://crosstool-ng.github.io/docs/caveats-features/
+
+config OVERLAY_LOCATION
+    string "Full path to custom configuration (overlay)"
+    help
+      Enter the path to the directory for the custom processor
+      configuration file.
+
+endif
 
 endmenu

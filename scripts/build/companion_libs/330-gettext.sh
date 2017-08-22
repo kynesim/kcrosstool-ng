@@ -9,23 +9,19 @@ do_gettext_for_target() { :; }
 if [ "${CT_GETTEXT}" = "y" ]; then
 
 do_gettext_get() {
-    CT_GetFile "gettext-${CT_GETTEXT_VERSION}" \
-               http://ftp.gnu.org/pub/gnu/gettext/
+    CT_Fetch GETTEXT
 }
 
 do_gettext_extract() {
-    CT_Extract "gettext-${CT_GETTEXT_VERSION}"
-    CT_Patch "gettext" "${CT_GETTEXT_VERSION}"
+    CT_ExtractPatch GETTEXT
 }
 
 # Build gettext for running on build
 do_gettext_for_build() {
     local -a gettext_opts
 
-    case "$CT_BUILD" in
-        *linux*)
-            return 0
-            ;;
+    case "${CT_TOOLCHAIN_TYPE}" in
+        native|cross)   return 0;;
     esac
 
     CT_DoStep INFO "Installing gettext for build"
@@ -78,18 +74,21 @@ do_gettext_backend() {
         eval "${arg// /\\ }"
     done
 
-    CT_DoLog EXTRA "Configuring gettext"
-
-    # A bit ugly. D__USE_MINGW_ANSI_STDIO=1 has its own {v}asprintf functions
-    # but gettext configure doesn't see this flag when it checks for that. An
-    # alternative may be to use CC="${host}-gcc ${cflags}" but that didn't
-    # work.
-    # -O2 works around bug at http://savannah.gnu.org/bugs/?36443
-    # gettext needs some fixing for MinGW-w64 it would seem.
-    # -DLIBXML_STATIC needed to link with libxml (provided by gnulib) under
-    # MinGW: without this flag, xmlFree is defined as `dllimport` by libxml
-    # headers and hence fails to link.
     case "${host}" in
+        *-linux-gnu*)
+            CT_DoLog EXTRA "Skipping (included in GNU C library)"
+            return
+            ;;
+
+        # A bit ugly. D__USE_MINGW_ANSI_STDIO=1 has its own {v}asprintf functions
+        # but gettext configure doesn't see this flag when it checks for that. An
+        # alternative may be to use CC="${host}-gcc ${cflags}" but that didn't
+        # work.
+        # -O2 works around bug at http://savannah.gnu.org/bugs/?36443
+        # gettext needs some fixing for MinGW-w64 it would seem.
+        # -DLIBXML_STATIC needed to link with libxml (provided by gnulib) under
+        # MinGW: without this flag, xmlFree is defined as `dllimport` by libxml
+        # headers and hence fails to link.
         *mingw*)
             case "${cflags}" in
                 *D__USE_MINGW_ANSI_STDIO=1*)
@@ -105,10 +104,13 @@ do_gettext_backend() {
         extra_config+=("--disable-shared")
     fi
 
+    CT_DoLog EXTRA "Configuring gettext"
+
     CT_DoExecLog CFG                                        \
     CFLAGS="${cflags}"                                      \
     LDFLAGS="${ldflags}"                                    \
-    "${CT_SRC_DIR}/gettext-${CT_GETTEXT_VERSION}/configure" \
+    ${CONFIG_SHELL}                                         \
+    "${CT_SRC_DIR}/gettext/configure"                       \
         --build=${CT_BUILD}                                 \
         --host="${host}"                                    \
         --prefix="${prefix}"                                \

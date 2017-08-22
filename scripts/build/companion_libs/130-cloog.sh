@@ -13,23 +13,16 @@ if [ "${CT_CLOOG}" = "y" ]; then
 
 # Download CLooG
 do_cloog_get() {
-    CT_GetFile "cloog-${CT_CLOOG_VERSION}"          \
-        http://www.bastoul.net/cloog/pages/download \
-        ftp://gcc.gnu.org/pub/gcc/infrastructure
+    CT_Fetch CLOOG
 }
 
 # Extract CLooG
 do_cloog_extract() {
-    CT_Extract "cloog-${CT_CLOOG_VERSION}"
-    CT_Patch "cloog" "${CT_CLOOG_VERSION}"
-
-    # Help the autostuff in case it thinks there are things to regenerate...
-    CT_DoExecLog DEBUG mkdir -p "${CT_SRC_DIR}/cloog-${CT_CLOOG_VERSION}/m4"
+    CT_ExtractPatch CLOOG
 }
 
 # Build CLooG for running on build
 # - always build statically
-# - we do not have build-specific CFLAGS
 # - install in build-tools prefix
 do_cloog_for_build() {
     local -a cloog_opts
@@ -86,7 +79,7 @@ do_cloog_backend() {
         eval "${arg// /\\ }"
     done
 
-    if [ "${CT_CLOOG_0_18_or_later}" = y ]; then
+    if [ "${CT_CLOOG_HAS_WITH_GMP_ISL_OSL}" = y ]; then
         cloog_opts+=( --with-gmp=system --with-gmp-prefix="${prefix}" )
         cloog_opts+=( --with-isl=system --with-isl-prefix="${prefix}" )
         cloog_opts+=( --without-osl )
@@ -98,7 +91,8 @@ do_cloog_backend() {
     CFLAGS="${cflags}"                                  \
     LDFLAGS="${ldflags}"                                \
     LIBS="-lm"                                          \
-    "${CT_SRC_DIR}/cloog-${CT_CLOOG_VERSION}/configure" \
+    ${CONFIG_SHELL}                                     \
+    "${CT_SRC_DIR}/cloog/configure"                     \
         --build=${CT_BUILD}                             \
         --host=${host}                                  \
         --prefix="${prefix}"                            \
@@ -112,8 +106,13 @@ do_cloog_backend() {
     CT_DoExecLog ALL make ${JOBSFLAGS}
 
     if [ "${CT_COMPLIBS_CHECK}" = "y" ]; then
-        CT_DoLog EXTRA "Checking CLooG"
-        CT_DoExecLog ALL make ${JOBSFLAGS} -s check
+        if [ "${host}" = "${CT_BUILD}" ]; then
+            CT_DoLog EXTRA "Checking CLooG"
+            CT_DoExecLog ALL make ${JOBSFLAGS} -s check
+        else
+            # Cannot run host binaries on build in a canadian cross
+            CT_DoLog EXTRA "Skipping check for CLooG on the host"
+        fi
     fi
 
     CT_DoLog EXTRA "Installing CLooG"

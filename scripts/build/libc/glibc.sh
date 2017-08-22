@@ -5,41 +5,24 @@
 do_libc_get() {
     local date
     local version
+    local -a addons_list
 
-    # Main source
-    if [ "${CT_LIBC_GLIBC_CUSTOM}" = "y" ]; then
-        CT_GetCustom "glibc" "${CT_LIBC_GLIBC_CUSTOM_VERSION}" \
-            "${CT_LIBC_GLIBC_CUSTOM_LOCATION}"
-    else
-        if echo ${CT_LIBC_VERSION} |grep -q linaro; then
-            # Linaro glibc releases come from regular downloads...
-            YYMM=`echo ${CT_LIBC_VERSION} |cut -d- -f3 |sed -e 's,^..,,'`
-            CT_GetFile "glibc-${CT_LIBC_VERSION}" \
-                       https://releases.linaro.org/${YYMM}/components/toolchain/glibc-linaro \
-                       http://cbuild.validation.linaro.org/snapshots
-        else
-            CT_GetFile "glibc-${CT_LIBC_VERSION}"                                        \
-                       {http,ftp,https}://ftp.gnu.org/gnu/glibc                          \
-                       ftp://{sourceware.org,gcc.gnu.org}/pub/glibc/{releases,snapshots}
-        fi
+    CT_Fetch GLIBC
+    if [ "${CT_GLIBC_USE_PORTS_EXTERNAL}" = "y" ]; then
+        CT_Fetch GLIBC_PORTS
     fi
-
     return 0
 }
 
 do_libc_extract() {
-    CT_Extract "${CT_LIBC}-${CT_LIBC_VERSION}"
-    CT_Pushd "${CT_SRC_DIR}/${CT_LIBC}-${CT_LIBC_VERSION}"
-    # Custom glibc won't get patched, because CT_GetCustom
-    # marks custom glibc as patched.
-    CT_Patch nochdir "${CT_LIBC}" "${CT_LIBC_VERSION}"
+    local addon
 
-    # The configure files may be older than the configure.in files
-    # if using a snapshot (or even some tarballs). Fake them being
-    # up to date.
-    find . -type f -name configure -exec touch {} \; 2>&1 |CT_DoLog ALL
-
-    CT_Popd
+    CT_ExtractPatch GLIBC
+    if [ "${CT_GLIBC_USE_PORTS_EXTERNAL}" = "y" ]; then
+        CT_ExtractPatch GLIBC_PORTS
+    fi
+    # TBD make patches for addons (ports? anything else?) uniformly using short names
+    # TBD make the configure timestamp fix in all patched packages (e.g. part of CT_ExtractPatch)
 }
 
 # Build and install headers and start files
@@ -95,9 +78,10 @@ do_libc_backend() {
 #   libc_mode           : 'startfiles' or 'final'               : string    : (empty)
 #   multi_*             : as defined in CT_IterateMultilibs     : (varies)  :
 do_libc_backend_once() {
-    local multi_flags multi_dir multi_os_dir multi_root multi_index multi_count
+    local multi_flags multi_dir multi_os_dir multi_root multi_index multi_count multi_target
+    local build_cflags build_cppflags build_ldflags
     local startfiles_dir
-    local src_dir="${CT_SRC_DIR}/${CT_LIBC}-${CT_LIBC_VERSION}"
+    local src_dir="${CT_SRC_DIR}/glibc"
     local -a extra_config
     local -a extra_make_args
     local glibc_cflags
@@ -145,7 +129,7 @@ do_libc_backend_once() {
 
     # Add some default glibc config options if not given by user.
     # We don't need to be conditional on whether the user did set different
-    # values, as they CT_LIBC_GLIBC_EXTRA_CONFIG_ARRAY is passed after
+    # values, as they CT_GLIBC_EXTRA_CONFIG_ARRAY is passed after
     # extra_config
 
     extra_config+=("$(do_libc_min_kernel_config)")
@@ -154,7 +138,7 @@ do_libc_backend_once() {
         nptl)           extra_config+=("--with-__thread" "--with-tls");;
         linuxthreads)   extra_config+=("--with-__thread" "--without-tls" "--without-nptl");;
         none)           extra_config+=("--without-__thread" "--without-nptl")
-                        case "${CT_LIBC_GLIBC_EXTRA_CONFIG_ARRAY[*]}" in
+                        case "${CT_GLIBC_EXTRA_CONFIG_ARRAY[*]}" in
                             *-tls*) ;;
                             *) extra_config+=("--without-tls");;
                         esac
@@ -166,12 +150,12 @@ do_libc_backend_once() {
         *) extra_config+=("--disable-shared");;
     esac
 
-    if [ "${CT_LIBC_DISABLE_VERSIONING}" = "y" ]; then
+    if [ "${CT_GLIBC_DISABLE_VERSIONING}" = "y" ]; then
         extra_config+=("--disable-versioning")
     fi
 
-    if [ "${CT_LIBC_OLDEST_ABI}" != "" ]; then
-        extra_config+=("--enable-oldest-abi=${CT_LIBC_OLDEST_ABI}")
+    if [ "${CT_GLIBC_OLDEST_ABI}" != "" ]; then
+        extra_config+=("--enable-oldest-abi=${CT_GLIBC_OLDEST_ABI}")
     fi
 
     case "$(do_libc_add_ons_list ,)" in
@@ -183,25 +167,29 @@ do_libc_backend_once() {
     [ -n "${CT_TOOLCHAIN_BUGURL}" ] && extra_config+=("--with-bugurl=${CT_TOOLCHAIN_BUGURL}")
 
     touch config.cache
-    if [ "${CT_LIBC_GLIBC_FORCE_UNWIND}" = "y" ]; then
+
+    # Hide host C++ binary from configure
+    echo "ac_cv_prog_ac_ct_CXX=${CT_TARGET}-g++" >>config.cache
+
+    if [ "${CT_GLIBC_FORCE_UNWIND}" = "y" ]; then
         echo "libc_cv_forced_unwind=yes" >>config.cache
         echo "libc_cv_c_cleanup=yes" >>config.cache
     fi
 
     # Pre-seed the configparms file with values from the config option
-    printf "%s\n" "${CT_LIBC_GLIBC_CONFIGPARMS}" > configparms
+    printf "%s\n" "${CT_GLIBC_CONFIGPARMS}" > configparms
 
     # glibc can't be built without -O2 (reference needed!)
     glibc_cflags+=" -O2"
 
-    case "${CT_LIBC_ENABLE_FORTIFIED_BUILD}" in
+    case "${CT_GLIBC_ENABLE_FORTIFIED_BUILD}" in
         y)  ;;
         *)  glibc_cflags+=" -U_FORTIFY_SOURCE";;
     esac
 
     # In the order of increasing precedence. Flags common to compiler and linker.
     glibc_cflags+=" ${CT_TARGET_CFLAGS}"
-    glibc_cflags+=" ${CT_LIBC_GLIBC_EXTRA_CFLAGS}"
+    glibc_cflags+=" ${CT_GLIBC_EXTRA_CFLAGS}"
     glibc_cflags+=" ${multi_flags}"
 
     # Analyze the resulting options for any extra configure switches to throw in.
@@ -229,6 +217,8 @@ do_libc_backend_once() {
     # or even after they get installed...
     echo "ac_cv_path_BASH_SHELL=/bin/bash" >>config.cache
 
+    CT_SymlinkToolsMultilib
+
     # Configure with --prefix the way we want it on the target...
     # There are a whole lot of settings here.  You'll probably want
     # to read up on what they all mean, and customize a bit, possibly
@@ -252,7 +242,7 @@ do_libc_backend_once() {
     # but they are not passed by configure. Thus, pass everything in CC instead.
     CT_DoExecLog CFG                                                \
     BUILD_CC=${CT_BUILD}-gcc                                        \
-    CC="${CT_TARGET}-gcc ${glibc_cflags}"                           \
+    CC="${CT_TARGET}-${CT_CC} ${glibc_cflags}"                      \
     AR=${CT_TARGET}-ar                                              \
     RANLIB=${CT_TARGET}-ranlib                                      \
     "${CONFIG_SHELL}"                                               \
@@ -266,7 +256,7 @@ do_libc_backend_once() {
         --without-gd                                                \
         --with-headers="${CT_HEADERS_DIR}"                          \
         "${extra_config[@]}"                                        \
-        "${CT_LIBC_GLIBC_EXTRA_CONFIG_ARRAY[@]}"
+        "${CT_GLIBC_EXTRA_CONFIG_ARRAY[@]}"
 
     # build hacks
     case "${CT_ARCH},${CT_ARCH_CPU}" in
@@ -277,23 +267,29 @@ do_libc_backend_once() {
             ;;
     esac
 
-    CT_CFLAGS_FOR_BUILD+=" ${CT_EXTRA_CFLAGS_FOR_BUILD}"
-    CT_LDFLAGS_FOR_BUILD+=" ${CT_EXTRA_LDFLAGS_FOR_BUILD}"
-    extra_make_args+=( "BUILD_CFLAGS=${CT_CFLAGS_FOR_BUILD}" "BUILD_LDFLAGS=${CT_LDFLAGS_FOR_BUILD}" )
+    build_cflags="${CT_CFLAGS_FOR_BUILD}"
+    build_cppflags=
+    build_ldflags="${CT_LDFLAGS_FOR_BUILD}"
 
     case "$CT_BUILD" in
-        *mingw*|*cygwin*|*msys*)
-            # When installing headers on Cygwin, MSYS2 and MinGW-w64 sunrpc needs
+        *mingw*|*cygwin*|*msys*|*darwin*|*freebsd*)
+            # When installing headers on Cygwin, Darwin, MSYS2 and MinGW-w64 sunrpc needs
             # gettext for building cross-rpcgen.
-            extra_make_args+=( BUILD_CPPFLAGS="-I${CT_BUILDTOOLS_PREFIX_DIR}/include/" )
-            extra_make_args+=( BUILD_LDFLAGS="-L${CT_BUILDTOOLS_PREFIX_DIR}/lib -Wl,-Bstatic -lintl -liconv -Wl,-Bdynamic" )
-            ;;
-        *darwin*)
-            # .. and the same goes for Darwin.
-            extra_make_args+=( BUILD_CPPFLAGS="-I${CT_BUILDTOOLS_PREFIX_DIR}/include/" )
-            extra_make_args+=( BUILD_LDFLAGS="-L${CT_BUILDTOOLS_PREFIX_DIR}/lib -lintl" )
+            build_cppflags="${build_cppflags} -I${CT_BUILDTOOLS_PREFIX_DIR}/include/"
+            build_ldflags="${build_ldflags} -lintl -liconv"
+            case "$CT_BUILD" in
+                *cygwin*|*freebsd*)
+                # Additionally, stat in FreeBSD, Cygwin, and possibly others
+                # is always 64bit, so replace struct stat64 with stat.
+                build_cppflags="${build_cppflags} -Dstat64=stat"
+                ;;
+            esac
             ;;
     esac
+
+    extra_make_args+=( "BUILD_CFLAGS=${build_cflags}" )
+    extra_make_args+=( "BUILD_CPPFLAGS=${build_cppflags}" )
+    extra_make_args+=( "BUILD_LDFLAGS=${build_ldflags}" )
 
     if [ "${libc_mode}" = "startfiles" -a ! -r "${multi_root}/.libc_headers_installed" ]; then
         CT_DoLog EXTRA "Installing C library headers"
@@ -314,7 +310,7 @@ do_libc_backend_once() {
             # See e.g. http://gcc.gnu.org/ml/gcc/2002-01/msg00900.html
             mkdir -p "${CT_HEADERS_DIR}/gnu"
             CT_DoExecLog ALL touch "${CT_HEADERS_DIR}/gnu/stubs.h"
-            CT_DoExecLog ALL cp -v "${CT_SRC_DIR}/glibc-${CT_LIBC_VERSION}/include/features.h"  \
+            CT_DoExecLog ALL cp -v "${CT_SRC_DIR}/glibc/include/features.h"  \
                                    "${CT_HEADERS_DIR}/features.h"
 
             # Building the bootstrap gcc requires either setting inhibit_libc, or
@@ -364,11 +360,11 @@ do_libc_backend_once() {
             # However, since we will never actually execute its code,
             # it doesn't matter what it contains.  So, treating '/dev/null'
             # as a C source file, we produce a dummy 'libc.so' in one step
-            CT_DoExecLog ALL "${CT_TARGET}-gcc" ${multi_flags}   \
-                                           -nostdlib             \
-                                           -nostartfiles         \
-                                           -shared               \
-                                           -x c /dev/null        \
+            CT_DoExecLog ALL "${CT_TARGET}-${CT_CC}" ${multi_flags}   \
+                                           -nostdlib                  \
+                                           -nostartfiles              \
+                                           -shared                    \
+                                           -x c /dev/null             \
                                            -o "${startfiles_dir}/libc.so"
         fi # threads == nptl
     fi # libc_mode = startfiles
@@ -394,12 +390,12 @@ do_libc_backend_once() {
             # manuals in parallel
             CT_DoExecLog ALL make pdf html
             CT_DoExecLog ALL mkdir -p ${CT_PREFIX_DIR}/share/doc
-            CT_DoExecLog ALL cp -av ${src_dir}/manual/*.pdf    \
-                                    ${src_dir}/manual/libc     \
+            CT_DoExecLog ALL cp -av manual/*.pdf    \
+                                    manual/libc     \
                                     ${CT_PREFIX_DIR}/share/doc
         fi
 
-        if [ "${CT_LIBC_LOCALES}" = "y" -a "${multi_index}" = "${multi_count}" ]; then
+        if [ "${CT_GLIBC_LOCALES}" = "y" -a "${multi_index}" = "${multi_count}" ]; then
             do_libc_locales
         fi
     fi # libc_mode = final
@@ -410,27 +406,28 @@ do_libc_backend_once() {
 # Build up the addons list, separated with $1
 do_libc_add_ons_list() {
     local sep="$1"
-    local addons_list="$( echo "${CT_LIBC_ADDONS_LIST}"            \
-                          |sed -r -e "s/[[:space:],]/${sep}/g;" \
-                        )"
-    if [ "${CT_LIBC_GLIBC_2_20_or_later}" != "y" ]; then
-        case "${CT_THREADS}" in
-            none)   ;;
-            *)      addons_list="${addons_list}${sep}${CT_THREADS}";;
-        esac
+    local addons_list
+
+    if [ "${CT_GLIBC_USE_PORTS_ADDON}" = "y" ]; then
+        addons_list="${addons_list}${sep}ports"
     fi
-    [ "${CT_LIBC_GLIBC_USE_PORTS}" = "y" ] && addons_list="${addons_list}${sep}ports"
-    # Remove duplicate, leading and trailing separators
-    echo "${addons_list}" |sed -r -e "s/${sep}+/${sep}/g; s/^${sep}//; s/${sep}\$//;"
+    if [ "${CT_GLIBC_USE_NPTL_ADDON}" = "y" ]; then
+        addons_list="${addons_list}${sep}nptl"
+    fi
+    if [ "${CT_GLIBC_USE_LIBIDN_ADDON}" = "y" ]; then
+        addons_list="${addons_list}${sep}libidn"
+    fi
+    echo "${addons_list#${sep}}" # Remove leading separator if any
 }
 
 # Compute up the minimum supported Linux kernel version
 do_libc_min_kernel_config() {
     local min_kernel_config
 
-    case "${CT_LIBC_GLIBC_EXTRA_CONFIG_ARRAY[*]}" in
+    case "${CT_GLIBC_EXTRA_CONFIG_ARRAY[*]}" in
         *--enable-kernel*) ;;
-        *)  if [ "${CT_LIBC_GLIBC_KERNEL_VERSION_AS_HEADERS}" = "y" ]; then
+        *)  if [ "${CT_GLIBC_KERNEL_VERSION_AS_HEADERS}" = "y" ]; then
+                # TBD do we support that currently? We always seem to install kernel headers
                 # We can't rely on the kernel version from the configuration,
                 # because it might not be available if the user uses pre-installed
                 # headers. On the other hand, both method will have the kernel
@@ -447,9 +444,9 @@ do_libc_min_kernel_config() {
                 patchlevel=$(((version_code>>8)&0xFF))
                 sublevel=$((version_code&0xFF))
                 min_kernel_config="${version}.${patchlevel}.${sublevel}"
-            elif [ "${CT_LIBC_GLIBC_KERNEL_VERSION_CHOSEN}" = "y" ]; then
+            elif [ "${CT_GLIBC_KERNEL_VERSION_CHOSEN}" = "y" ]; then
                 # Trim the fourth part of the linux version, keeping only the first three numbers
-                min_kernel_config="$( echo "${CT_LIBC_GLIBC_MIN_KERNEL_VERSION}"               \
+                min_kernel_config="$( echo "${CT_GLIBC_MIN_KERNEL_VERSION}"               \
                                       |sed -r -e 's/^([^.]+\.[^.]+\.[^.]+)(|\.[^.]+)$/\1/;' \
                                     )"
             fi
@@ -460,9 +457,18 @@ do_libc_min_kernel_config() {
 
 # Build and install the libc locales
 do_libc_locales() {
-    local src_dir="${CT_SRC_DIR}/glibc-${CT_LIBC_VERSION}"
+    local src_dir="${CT_SRC_DIR}/glibc"
     local -a extra_config
     local glibc_cflags
+
+    # To build locales, we'd need to build glibc for the build machine.
+    # Bail out if the host is not supported.
+    case "${CT_BUILD}" in
+        *-cygwin|*-darwin*)
+            CT_DoLog EXTRA "Skipping GNU libc locales: incompatible build machine"
+            return
+            ;;
+    esac
 
     mkdir -p "${CT_BUILD_DIR}/build-localedef"
     cd "${CT_BUILD_DIR}/build-localedef"
@@ -482,7 +488,7 @@ do_libc_locales() {
     CT_DoLog DEBUG "Extra config args passed: '${extra_config[*]}'"
 
     glibc_cflags="-O2 -fno-stack-protector"
-    case "${CT_LIBC_ENABLE_FORTIFIED_BUILD}" in
+    case "${CT_GLIBC_ENABLE_FORTIFIED_BUILD}" in
         y)  ;;
         *)  glibc_cflags+=" -U_FORTIFY_SOURCE";;
     esac
@@ -504,6 +510,7 @@ do_libc_locales() {
 
     CT_DoExecLog CFG                       \
     CFLAGS="${glibc_cflags}"               \
+    ${CONFIG_SHELL}                        \
     "${src_dir}/configure"                 \
         --prefix=/usr                      \
         --cache-file="$(pwd)/config.cache" \

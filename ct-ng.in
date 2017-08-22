@@ -10,7 +10,7 @@ MAKEFLAGS += --no-print-directory --no-builtin-rules
 .NOTPARALLEL:
 
 # This is where ct-ng is:
-export CT_NG:=$(lastword $(MAKEFILE_LIST))
+export CT_NG:=$(abspath $(lastword $(MAKEFILE_LIST)))
 # and this is where we're working in:
 export CT_TOP_DIR:=$(shell pwd)
 
@@ -28,15 +28,11 @@ include $(CT_LIB_DIR)/paths.mk
 # Some distributions (eg. Ubuntu) thought it wise to point /bin/sh to
 # a truly POSIX-conforming shell, ash in this case. This is not so good
 # as we, smart (haha!) developers (as smart we ourselves think we are),
-# got used to bashisms, and are enclined to easiness... So force use of
+# got used to bashisms, and are inclined to easiness... So force use of
 # bash.
 export SHELL=$(bash)
 
-# GREP_OPTIONS=--color=always will break the generated .in files
-# We do not need any GREP_OPTIONS anyway, so set it to empty.
-export GREP_OPTIONS=
-
-# Make the restart/stop steps availabe to scripts/crostool-NG.sh
+# Make the restart/stop steps available to scripts/crostool-NG.sh
 export CT_STOP:=$(STOP)
 export CT_RESTART:=$(RESTART)
 
@@ -111,7 +107,6 @@ help-clean::
 	@echo  '  clean              - Remove generated files'
 	@echo  '  distclean          - Remove generated files, configuration and build directories'
 
-include $(CT_LIB_DIR)/config/config.mk
 include $(CT_LIB_DIR)/kconfig/kconfig.mk
 include $(CT_LIB_DIR)/steps.mk
 include $(CT_LIB_DIR)/samples/samples.mk
@@ -136,20 +131,15 @@ help-env::
 	@echo "or configure an existing sample."
 	@false
 
-.config.2: .config
-	$(SILENT)$(sed) -r -e 's/^([^=]+_ARRAY)="(.*)"$$/\1=( \2 )/;'   \
-	                   -e '/^[^=]+_ARRAY=/s/\\(.)/\1/g;'            \
-	                $< >$@
-
-show-tuple: .config.2
-	$(SILENT)$(bash) $(CT_LIB_DIR)/scripts/showTuple.sh
+show-tuple: .config
+	$(SILENT)$(bash) $(CT_LIB_DIR)/scripts/showConfig.sh '$${CT_TARGET}'
 
 # Actual build
-source: .config.2
-	$(SILENT)CT_SOURCE=y $(CT_LIB_DIR)/scripts/crosstool-NG.sh
+source: .config
+	$(SILENT)CT_SOURCE=y $(bash) $(CT_LIB_DIR)/scripts/crosstool-NG.sh
 
-build: .config.2
-	$(SILENT)$(CT_LIB_DIR)/scripts/crosstool-NG.sh
+build: .config
+	$(SILENT)$(bash) $(CT_LIB_DIR)/scripts/crosstool-NG.sh
 
 build.%:
 	$(SILENT)$(MAKE) -rf $(CT_NG) build CT_JOBS=$*

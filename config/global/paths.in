@@ -4,24 +4,24 @@ comment "Paths"
 
 config LOCAL_TARBALLS_DIR
     string
-    prompt "Local tarballs directory" if ! BACKEND
-    default ""
+    prompt "Local tarballs directory"
+    default "${HOME}/src"
     help
       If you have previously downloaded the tarballs, enter the PATH where
       you stored them here.
 
 config SAVE_TARBALLS
     bool
-    prompt "Save new tarballs" if ! BACKEND
-    depends on LOCAL_TARBALLS_DIR != "" || BACKEND
-    default y if BACKEND
+    prompt "Save new tarballs"
+    depends on LOCAL_TARBALLS_DIR != ""
+    default y
     help
       If you say 'y' here, new downloaded tarballs will be saved in the
       directory you entered above.
 
 config WORK_DIR
     string
-    prompt "Working directory" if ! BACKEND
+    prompt "Working directory"
     default "${CT_TOP_DIR}/.build"
     help
       Set this to the directory where all build actions will be done.
@@ -40,10 +40,14 @@ config WORK_DIR
       
       Do *NOT* change it if you don't know better.
 
+config BUILD_TOP_DIR
+    string
+    default "${CT_WORK_DIR}/${CT_HOST:+HOST-${CT_HOST}/}${CT_TARGET}"
+
 config PREFIX_DIR
     string
-    prompt "Prefix directory" if ! BACKEND
-    default "${HOME}/x-tools/${CT_TARGET}"
+    prompt "Prefix directory"
+    default "${CT_PREFIX:-${HOME}/x-tools}/${CT_HOST:+HOST-${CT_HOST}/}${CT_TARGET}"
     help
       This is the path the toolchain will run from.
 
@@ -51,7 +55,6 @@ config RM_RF_PREFIX_DIR
     bool
     prompt "|  Remove the prefix dir prior to building"
     default y
-    depends on !BACKEND
     help
       If you say 'y' here, then PREFIX_DIR (above) will be eradicated
       prior to the toolchain is built.
@@ -65,9 +68,6 @@ config RM_RF_PREFIX_DIR
       it into a directory with pre-install, unrelated programs, it would be
       damageable to remove that directory. In this case, you may want to
       say 'n' here.
-      
-      Note that when acting as a backend, this option is not available, and
-      is forced to 'n'.
 
 config REMOVE_DOCS
     bool

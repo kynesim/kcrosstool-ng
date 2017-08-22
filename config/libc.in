@@ -2,24 +2,7 @@
 
 menu "C-library"
 
-config LIBC
-    string
-
-config LIBC_VERSION
-    string
-    help
-      Enter the date of the snapshot you want to use in the form: YYYYMMDD
-      where YYYY is the 4-digit year, MM the 2-digit month and DD the 2-digit
-      day in the month.
-      
-      Please note:
-      - glibc has snapshots done every monday, and only the last ten are kept.
-      - uClibc has daily snapshots, and only the last 30-or-so are kept.
-      
-      So if you want to be able to re-build your toolchain later, you will
-      have to save your C library tarball by yourself.
-
-source "config.gen/libc.in"
+source "config/gen/libc.in"
 
 config LIBC_SUPPORT_THREADS_ANY
     bool
@@ -47,7 +30,7 @@ config THREADS
     string
     default "none" if THREADS_NONE
 
-if ! LIBC_none
+if ! LIBC_NONE
 
 comment "Common C library options"
 
@@ -55,8 +38,8 @@ choice
     bool
     prompt "Threading implementation to use:"
     default THREADS_NATIVE         if LIBC_SUPPORT_THREADS_NATIVE
-    default THREADS_THREADS_LT     if LIBC_SUPPORT_THREADS_LT
-    default THREADS_THREADS_POSIX  if LIBC_SUPPORT_THREADS_POSIX
+    default THREADS_LT             if LIBC_SUPPORT_THREADS_LT
+    default THREADS_POSIX          if LIBC_SUPPORT_THREADS_POSIX
     default THREADS_NONE
 
 config THREADS_NATIVE
@@ -87,6 +70,26 @@ config THREADS_NONE
 
 endchoice
 
+config CREATE_LDSO_CONF
+    bool "Create /etc/ld.so.conf file"
+    depends on SHARED_LIBS
+    default y if MULTILIB
+    help
+      Create /etc/ld.so.conf file in the sysroot directory for the
+      target.
+
+      Note that Buildroot errors out if it sees /etc/ld.so.conf.
+
+config LDSO_CONF_EXTRA_DIRS_ARRAY
+    string "Extra directories to add to /etc/ld.so.conf"
+    depends on CREATE_LDSO_CONF
+    help
+      Extra directories to include in /etc/ld.so.conf. The directories
+      will be augmented per compiler's multilib specification,
+      if applicable. For example, if the compiler's multilibs include
+      /lib and /lib64, and you specify /usr/local/lib here, ld.so.conf
+      will have both /usr/local/lib and /usr/local/lib64.
+
 config LIBC_XLDD
     bool
     prompt "Install a cross ldd-like helper"
@@ -103,8 +106,6 @@ config LIBC_XLDD
       for the native ldd. Please see the help, by running it
       with '--help' for more explanations.
 
-source "config.gen/libc.in.2"
-
-endif # ! LIBC_none
+endif # ! LIBC_NONE
 
 endmenu

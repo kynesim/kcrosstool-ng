@@ -2,53 +2,14 @@
 # Copyright 2007 Yann E. MORIN
 # Licensed under the GPL v2. See COPYING in the root of this package
 
-# This is a constant because it does not change very often.
-# We're in 2010, and are still using data from 7 years ago.
-uclibc_locales_version=030818
-uclibc_locale_tarball="uClibc-locale-${uclibc_locales_version}"
-
-if [ "${CT_LIBC_UCLIBC_NG}" = "y" ]; then
-    uclibc_name="uClibc-ng"
-    libc_src="http://downloads.uclibc-ng.org/releases/${CT_LIBC_VERSION}"
-else
-    uclibc_name="uClibc"
-    libc_src="http://www.uclibc.org/downloads
-              http://www.uclibc.org/downloads/old-releases"
-fi
-
 # Download uClibc
 do_libc_get() {
-    if [ "${CT_LIBC_UCLIBC_CUSTOM}" = "y" ]; then
-        CT_GetCustom "${uclibc_name}" "${CT_LIBC_UCLIBC_CUSTOM_VERSION}" \
-            "${CT_LIBC_UCLIBC_CUSTOM_LOCATION}"
-    else
-        CT_GetFile "${uclibc_name}-${CT_LIBC_VERSION}" ${libc_src}
-    fi
-    # uClibc locales
-    if [ "${CT_LIBC_UCLIBC_LOCALES_PREGEN_DATA}" = "y" ]; then
-        CT_GetFile "${uclibc_locale_tarball}" ${libc_src}
-    fi
-
-    return 0
+    CT_Fetch UCLIBC
 }
 
 # Extract uClibc
 do_libc_extract() {
-    CT_Extract "${uclibc_name}-${CT_LIBC_VERSION}"
-    CT_Patch "${uclibc_name}" "${CT_LIBC_VERSION}"
-
-    # uClibc locales
-    # Extracting pregen locales ourselves is kinda
-    # broken, so just link it in place...
-    if [    "${CT_LIBC_UCLIBC_LOCALES_PREGEN_DATA}" = "y"           \
-         -a ! -f "${CT_SRC_DIR}/.${uclibc_locale_tarball}.extracted" ]; then
-        CT_Pushd "${CT_SRC_DIR}/${uclibc_name}-${CT_LIBC_VERSION}/extra/locale"
-        CT_DoExecLog ALL ln -s "${CT_TARBALLS_DIR}/${uclibc_locale_tarball}.tgz" .
-        CT_Popd
-        touch "${CT_SRC_DIR}/.${uclibc_locale_tarball}.extracted"
-    fi
-
-    return 0
+    CT_ExtractPatch UCLIBC
 }
 
 # Build and install headers and start files
@@ -80,8 +41,6 @@ do_libc_backend() {
 
     CT_mkdir_pushd "${CT_BUILD_DIR}/build-libc-${libc_mode}"
     CT_IterateMultilibs do_libc_backend_once multilib libc_mode="${libc_mode}"
-
-
     CT_Popd
     CT_EndStep
 }
@@ -95,16 +54,19 @@ do_libc_backend_once() {
     local -a make_args
     local extra_cflags f cfg_cflags cf
     local hdr_install_subdir
+    local uclibc_name
 
     for arg in "$@"; do
         eval "${arg// /\\ }"
     done
 
-    CT_DoStep INFO "Building for multilib ${multi_index}/${multi_count}: '${multi_flags}'"
+    if [ "${CT_UCLIBC_USE_UCLIBC_NG_ORG}" = "y" ]; then
+        uclibc_name="uClibc-ng"
+    elif [ "${CT_UCLIBC_USE_UCLIBC_ORG}" = "y" ]; then
+        uclibc_name="uClibc"
+    fi
 
-    # Simply copy files until uClibc has the ability to build out-of-tree
-    CT_DoLog EXTRA "Copying sources to build dir"
-    CT_DoExecLog ALL cp -aT "${CT_SRC_DIR}/${uclibc_name}-${CT_LIBC_VERSION}/." .
+    CT_DoStep INFO "Building for multilib ${multi_index}/${multi_count}: '${multi_flags}'"
 
     multilib_dir="lib/${multi_os_dir}"
     startfiles_dir="${multi_root}/usr/${multilib_dir}"
@@ -121,12 +83,16 @@ do_libc_backend_once() {
     # - We do _not_ want to strip anything for now, in case we specifically
     #   asked for a debug toolchain, thus the STRIPTOOL= assignment.
     make_args=( CROSS_COMPILE="${CT_TARGET}-"                           \
+                HOSTCC="${CT_BUILD}-gcc"                                \
                 PREFIX="${multi_root}/"                                 \
                 MULTILIB_DIR="${multilib_dir}"                          \
-                LOCALE_DATA_FILENAME="${uclibc_locale_tarball}.tgz"     \
                 STRIPTOOL=true                                          \
                 ${CT_LIBC_UCLIBC_VERBOSITY}                             \
                 )
+
+    # Simply copy files until uClibc has the ability to build out-of-tree
+    CT_DoLog EXTRA "Copying sources to build dir"
+    CT_DoExecLog ALL cp -av "${CT_SRC_DIR}/uClibc/." .
 
     # Force the date of the pregen locale data, as the
     # newer ones that are referenced are not available
@@ -138,7 +104,7 @@ do_libc_backend_once() {
     fi
 
     manage_uClibc_config "${CT_LIBC_UCLIBC_CONFIG_FILE}" .config "${multi_flags}"
-    CT_DoYes | CT_DoExecLog ALL make "${make_args[@]}" oldconfig
+    CT_DoExecLog ALL make "${make_args[@]}" olddefconfig
 
     # Now filter the multilib flags. manage_uClibc_config did the opposite of
     # what Rules.mak in uClibc would do: by the multilib's CFLAGS, it determined
@@ -197,7 +163,7 @@ do_libc_backend_once() {
             # libm.so is needed for ppc, as libgcc is linked against libm.so
             # No problem to create it for other archs.
             CT_DoLog EXTRA "Building dummy shared libs"
-            CT_DoExecLog ALL "${CT_TARGET}-gcc" -nostdlib -nostartfiles \
+            CT_DoExecLog ALL "${CT_TARGET}-${CT_CC}" -nostdlib -nostartfiles \
                 -shared ${multi_flags} -x c /dev/null -o libdummy.so
 
             CT_DoLog EXTRA "Installing start files"
@@ -299,6 +265,13 @@ manage_uClibc_config() {
     esac
     if [ "${CT_LIBC_UCLIBC_FENV}" = "y" ]; then
         CT_KconfigEnableOption "UCLIBC_HAS_FENV" "${dst}"
+    else
+        CT_KconfigDisableOption "UCLIBC_HAS_FENV" "${dst}"
+    fi
+    if [ "${CT_LIBC_UCLIBC_RPC}" = "y" ]; then
+        CT_KconfigEnableOption "UCLIBC_HAS_RPC" "${dst}"
+    else
+        CT_KconfigDisableOption "UCLIBC_HAS_RPC" "${dst}"
     fi
 
     # We always want ctor/dtor
@@ -317,27 +290,15 @@ manage_uClibc_config() {
     # entirely if LOCALE is not set.  If LOCALE was already set, we'll
     # assume the user has already made all the appropriate generation
     # arrangements.  Note that having the uClibc Makefile download the
-    # pregenerated locales is not compatible with crosstool; besides,
-    # crosstool downloads them as part of getandpatch.sh.
-    CT_KconfigDeleteOption "UCLIBC_DOWNLOAD_PREGENERATED_LOCALE" "${dst}"
-    case "${CT_LIBC_UCLIBC_LOCALES}:${CT_LIBC_UCLIBC_LOCALES_PREGEN_DATA}" in
-        :*)
-            ;;
-        y:)
+    # pregenerated locales is not compatible with crosstool.
+    if [ -z "${CT_LIBC_UCLIBC_LOCALES}" ]; then
+            CT_KconfigDisableOption "UCLIBC_HAS_LOCALE" "${dst}"
+    else
             CT_KconfigEnableOption "UCLIBC_HAS_LOCALE" "${dst}"
             CT_KconfigDeleteOption "UCLIBC_PREGENERATED_LOCALE_DATA" "${dst}"
-            CT_KconfigDeleteOption "UCLIBC_DOWNLOAD_PREGENERATED_LOCALE_DATA" \
-                "${dst}"
+            CT_KconfigDeleteOption "UCLIBC_DOWNLOAD_PREGENERATED_LOCALE_DATA" "${dst}"
             CT_KconfigDeleteOption "UCLIBC_HAS_XLOCALE" "${dst}"
-            ;;
-        y:y)
-            CT_KconfigEnableOption "UCLIBC_HAS_LOCALE" "${dst}"
-            CT_KconfigEnableOption "UCLIBC_PREGENERATED_LOCALE_DATA" "${dst}"
-            CT_KconfigDeleteOption "UCLIBC_DOWNLOAD_PREGENERATED_LOCALE_DATA" \
-                "${dst}"
-            CT_KconfigDeleteOption "UCLIBC_HAS_XLOCALE" "${dst}"
-            ;;
-    esac
+    fi
 
     # WCHAR support
     if [ "${CT_LIBC_UCLIBC_WCHAR}" = "y" ]; then
@@ -448,51 +409,5 @@ do_libc_post_cc() {
     # file in /lib. Thus, need to do this after all the variants are built.
     # Moreover, need to do this after the final compiler is built: on targets
     # that use elf2flt, the core compilers cannot find ld when running elf2flt.
-    CT_DoStep INFO "Checking dynamic linker symlinks"
-    CT_mkdir_pushd "${CT_BUILD_DIR}/build-libc-post_cc"
-    echo "int main(void) { return 0; }" > test-ldso.c
-    CT_IterateMultilibs do_libc_ldso_fixup ldso_fixup
-    CT_Popd
-    CT_EndStep
-}
-
-do_libc_ldso_fixup() {
-    local multi_dir multi_os_dir multi_root multi_flags multi_index multi_count
-    local binary
-    local ldso ldso_f ldso_d multilib_dir
-
-    for arg in "$@"; do
-        eval "${arg// /\\ }"
-    done
-
-    CT_DoLog EXTRA "Checking dynamic linker for multilib '${multi_flags}'"
-
-    multilib_dir="/lib/${multi_os_dir}"
-    CT_SanitizeVarDir multilib_dir
-
-    CT_DoExecLog ALL "${CT_TARGET}-gcc" -o test-ldso ../test-ldso.c ${multi_flags}
-    if [ -r "test-ldso.gdb" ]; then
-        binary="test-ldso.gdb"
-    else
-        binary="test-ldso"
-    fi
-    if ${CT_TARGET}-readelf -Wl "${binary}" | grep -q 'Requesting program interpreter: '; then
-        ldso=$( ${CT_TARGET}-readelf -Wl "${binary}" | \
-            grep 'Requesting program interpreter: ' | \
-            sed -e 's,.*: ,,' -e 's,\].*,,' )
-    fi
-    CT_DoLog DEBUG "Detected dynamic linker for multilib '${multi_flags}': '${ldso}'"
-
-    ldso_d="${ldso%/ld*.so.*}"
-    ldso_f="${ldso##*/}"
-    # Create symlink if GCC produced an executable, dynamically linked, it was requesting
-    # a linker not in the current directory, and there is no such file in the expected
-    # ldso dir.
-    if [ -n "${ldso}" -a "${ldso_d}" != "${multilib_dir}" -a ! -r "${multi_root}${ldso}" ]; then
-        # Convert ldso_d to "how many levels we need to go up" and remove
-        # leading slash.
-        ldso_d=$( echo "${ldso_d#/}" | sed 's,[^/]\+,..,g' )
-        CT_DoExecLog ALL ln -sf "${ldso_d}${multilib_dir}/${ldso_f}" \
-            "${multi_root}${ldso}"
-    fi
+    CT_MultilibFixupLDSO
 }

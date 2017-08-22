@@ -13,20 +13,16 @@ if [ "${CT_MPC}" = "y" ]; then
 
 # Download MPC
 do_mpc_get() {
-    CT_GetFile "mpc-${CT_MPC_VERSION}" .tar.gz      \
-        {http,ftp,https}://ftp.gnu.org/gnu/mpc      \
-        http://www.multiprecision.org/mpc/download
+    CT_Fetch MPC
 }
 
 # Extract MPC
 do_mpc_extract() {
-    CT_Extract "mpc-${CT_MPC_VERSION}"
-    CT_Patch "mpc" "${CT_MPC_VERSION}"
+    CT_ExtractPatch MPC
 }
 
 # Build MPC for running on build
 # - always build statically
-# - we do not have build-specific CFLAGS
 # - install in build-tools prefix
 do_mpc_for_build() {
     local -a mpc_opts
@@ -87,7 +83,8 @@ do_mpc_backend() {
     CT_DoExecLog CFG                                \
     CFLAGS="${cflags}"                              \
     LDFLAGS="${ldflags}"                            \
-    "${CT_SRC_DIR}/mpc-${CT_MPC_VERSION}/configure" \
+    ${CONFIG_SHELL}                                 \
+    "${CT_SRC_DIR}/mpc/configure"                   \
         --build=${CT_BUILD}                         \
         --host=${host}                              \
         --prefix="${prefix}"                        \
@@ -100,8 +97,13 @@ do_mpc_backend() {
     CT_DoExecLog ALL make ${JOBSFLAGS}
 
     if [ "${CT_COMPLIBS_CHECK}" = "y" ]; then
-        CT_DoLog EXTRA "Checking MPC"
-        CT_DoExecLog ALL make ${JOBSFLAGS} -s check
+        if [ "${host}" = "${CT_BUILD}" ]; then
+            CT_DoLog EXTRA "Checking MPC"
+            CT_DoExecLog ALL make ${JOBSFLAGS} -s check
+        else
+            # Cannot run host binaries on build in a canadian cross
+            CT_DoLog EXTRA "Skipping check for MPC on the host"
+        fi
     fi
 
     CT_DoLog EXTRA "Installing MPC"

@@ -13,20 +13,16 @@ if [ "${CT_GMP}" = "y" ]; then
 
 # Download GMP
 do_gmp_get() {
-    CT_GetFile "gmp-${CT_GMP_VERSION}"         \
-        https://gmplib.org/download/gmp        \
-        {http,ftp,https}://ftp.gnu.org/gnu/gmp
+    CT_Fetch GMP
 }
 
 # Extract GMP
 do_gmp_extract() {
-    CT_Extract "gmp-${CT_GMP_VERSION}"
-    CT_Patch "gmp" "${CT_GMP_VERSION}"
+    CT_ExtractPatch GMP
 }
 
 # Build GMP for running on build
 # - always build statically
-# - we do not have build-specific CFLAGS
 # - install in build-tools prefix
 do_gmp_for_build() {
     local -a gmp_opts
@@ -85,14 +81,20 @@ do_gmp_backend() {
 
     CT_DoLog EXTRA "Configuring GMP"
 
-    if [ ! "${CT_GMP_5_0_2_or_later}" = "y" ]; then
+    # FIXME is it needed even for older versions? They seem to compile fine
+    # without it.
+    if [ "${CT_GMP_HAS_MPBSD}" = "y" ]; then
         extra_config+=("--enable-mpbsd")
     fi
 
+    # FIXME: GMP's configure script doesn't respect the host parameter
+    # when not cross-compiling, ie when build == host.
     CT_DoExecLog CFG                                \
+    CC="${host}-gcc"                                \
     CFLAGS="${cflags} -fexceptions"                 \
     LDFLAGS="${ldflags}"                            \
-    "${CT_SRC_DIR}/gmp-${CT_GMP_VERSION}/configure" \
+    ${CONFIG_SHELL}                                 \
+    "${CT_SRC_DIR}/gmp/configure"                   \
         --build=${CT_BUILD}                         \
         --host=${host}                              \
         --prefix="${prefix}"                        \
@@ -100,14 +102,19 @@ do_gmp_backend() {
         --enable-cxx                                \
         --disable-shared                            \
         --enable-static                             \
-        "${extra_config}"
+        "${extra_config[@]}"
 
     CT_DoLog EXTRA "Building GMP"
     CT_DoExecLog ALL make ${JOBSFLAGS}
 
     if [ "${CT_COMPLIBS_CHECK}" = "y" ]; then
-        CT_DoLog EXTRA "Checking GMP"
-        CT_DoExecLog ALL make ${JOBSFLAGS} -s check
+        if [ "${host}" = "${CT_BUILD}" ]; then
+            CT_DoLog EXTRA "Checking GMP"
+            CT_DoExecLog ALL make ${JOBSFLAGS} -s check
+        else
+            # Cannot run host binaries on build in a canadian cross
+            CT_DoLog EXTRA "Skipping check for GMP on the host"
+        fi
     fi
 
     CT_DoLog EXTRA "Installing GMP"

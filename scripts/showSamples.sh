@@ -1,6 +1,3 @@
-#!/bin/sh
-# Yes, this is supposed to be a POSIX-compliant shell script.
-
 # Parses all samples on the command line, and for each of them, prints
 # the versions of the main tools
 
@@ -14,6 +11,9 @@
 # GREP_OPTIONS screws things up.
 export GREP_OPTIONS=
 
+# Dummy version which is invoked from .config
+CT_Mirrors() { :; }
+
 # Dump a single sample
 # Note: we use the specific .config.sample config file
 dump_single_sample() {
@@ -26,13 +26,26 @@ dump_single_sample() {
     . $(pwd)/.config.sample
 
     # libc needs some love
+    # TBD after conversion of gen-kconfig to template, use CT_LIBC_USE as a selector for other variables
+    # (i.e. whether to use CT_GLIBC_VERSION or CT_MUSL_VERSION)
     local libc_name="${CT_LIBC}"
-    local libc_ver="${CT_LIBC_VERSION}"
-    if [ "${CT_LIBC}" = "uClibc" -a "${CT_LIBC_UCLIBC_NG}" = "y" ]; then
-        libc_name="uClibc-ng"
-    elif [ "${CT_LIBC}" = "mingw" ]; then
-        libc_ver="${CT_WINAPI_VERSION}"
-    fi
+    local libc_ver ksym
+
+    ksym=${libc_name//[^0-9A-Za-z_]/_}
+    ksym=${ksym^^}
+    case ${ksym} in
+        GLIBC|NEWLIB)
+            if eval "[ \"\${CT_${ksym}_USE_LINARO}\" = y ]"; then
+                ksym="${ksym}_LINARO"
+            fi
+            ;;
+        UCLIBC)
+            if [ "${UCLIBC_NG_USE_UCLIBC_NG_ORG}" = y ]; then
+                ksym="${ksym}_NG"
+            fi
+            ;;
+    esac
+    eval "libc_ver=\"\${CT_${ksym}_VERSION}\""
 
     case "${sample}" in
         current)
@@ -66,7 +79,8 @@ dump_single_sample() {
                     printf "    %-*s : %s\n" ${width} "Host" "${CT_HOST}"
                     ;;
             esac
-            printf "    %-*s : %s\n" ${width} "OS" "${CT_KERNEL}${CT_KERNEL_VERSION:+-}${CT_KERNEL_VERSION}"
+            # TBD currently only Linux is used. General handling for single-select (compiler/binutils/libc/os) and multi-select (debug/companions) components?
+            printf "    %-*s : %s\n" ${width} "OS" "${CT_KERNEL}${CT_LINUX_VERSION:+-}${CT_LINUX_VERSION}"
             if [    -n "${CT_GMP}"              \
                  -o -n "${CT_MPFR}"             \
                  -o -n "${CT_ISL}"              \
@@ -101,7 +115,7 @@ dump_single_sample() {
             cc=$(echo ${CT_CC} | ${awk} '{ print toupper($0)}')
             version=$(eval echo \${CT_CC_${cc}_VERSION})
             compiler=$(echo $cc | ${awk} '{print tolower($0)}')
-            printf " $compiler  |  $version"
+            printf " $compiler-$version"
             printf "\n"
             printf  "    %-*s : %s" ${width} "Languages" "C"
             [ "${CT_CC_LANG_CXX}" = "y"     ] && printf ",C++"
@@ -142,7 +156,7 @@ dump_single_sample() {
             if [ "${CT_KERNEL_LINUX_HEADERS_USE_CUSTOM_DIR}" = "y" ]; then
                 printf "  //custom//  "
             else
-                printf "  ${CT_KERNEL_VERSION}  "
+                printf "  ${CT_LINUX_VERSION}  "
             fi
         fi
         printf "|  ${CT_BINUTILS_VERSION}  "

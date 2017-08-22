@@ -9,23 +9,19 @@ do_libiconv_for_target() { :; }
 if [ "${CT_LIBICONV}" = "y" ]; then
 
 do_libiconv_get() {
-    CT_GetFile "libiconv-${CT_LIBICONV_VERSION}" \
-               http://ftp.gnu.org/pub/gnu/libiconv/
+    CT_Fetch LIBICONV
 }
 
 do_libiconv_extract() {
-    CT_Extract "libiconv-${CT_LIBICONV_VERSION}"
-    CT_Patch "libiconv" "${CT_LIBICONV_VERSION}"
+    CT_ExtractPatch LIBICONV
 }
 
 # Build libiconv for running on build
 do_libiconv_for_build() {
     local -a libiconv_opts
 
-    case "$CT_BUILD" in
-        *darwin*|*linux*)
-            return 0
-            ;;
+    case "${CT_TOOLCHAIN_TYPE}" in
+        native|cross)   return 0;;
     esac
 
     CT_DoStep INFO "Installing libiconv for build"
@@ -78,16 +74,24 @@ do_libiconv_backend() {
         eval "${arg// /\\ }"
     done
 
-    CT_DoLog EXTRA "Configuring libiconv"
+    case "${host}" in
+        *-linux-gnu*)
+            CT_DoLog EXTRA "Skipping (included in GNU C library)"
+            return
+            ;;
+    esac
 
     if [ "${shared}" != "y" ]; then
         extra_config+=("--disable-shared")
     fi
 
+    CT_DoLog EXTRA "Configuring libiconv"
+
     CT_DoExecLog CFG                                          \
     CFLAGS="${cflags}"                                        \
     LDFLAGS="${ldflags}"                                      \
-    "${CT_SRC_DIR}/libiconv-${CT_LIBICONV_VERSION}/configure" \
+    ${CONFIG_SHELL}                                           \
+    "${CT_SRC_DIR}/libiconv/configure"                        \
         --build=${CT_BUILD}                                   \
         --host="${host}"                                      \
         --prefix="${prefix}"                                  \
